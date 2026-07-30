@@ -94,3 +94,24 @@ def env_db_url(name):
     if sslmode:
         config["OPTIONS"] = {"sslmode": sslmode}
     return config
+
+
+def env_cloudinary_url(name):
+    """Split cloudinary://api_key:api_secret@cloud_name into its three parts.
+
+    Cloudinary's own dashboard hands out this one string, so accept it rather
+    than asking a deploy to take it apart by hand.
+    """
+    value = os.environ.get(name)
+    if value is None or value == "":
+        return None
+
+    parts = urlsplit(value)
+    if parts.scheme != "cloudinary":
+        raise MissingSetting(f"{name} must be a cloudinary:// URL, got {parts.scheme or value!r}")
+
+    return {
+        "CLOUD_NAME": parts.hostname or "",
+        "API_KEY": unquote(parts.username or ""),
+        "API_SECRET": unquote(parts.password or ""),
+    }

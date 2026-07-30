@@ -38,27 +38,34 @@ Variables the API service needs:
 | --- | --- |
 | `DJANGO_SECRET_KEY` | 50 random characters. `python -c "from django.core.management.utils import get_random_secret_key as k; print(k())"` |
 | `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` — the reference, not a pasted URL, so it stays on the internal network |
-| `REDIS_URL` | `${{Redis.REDIS_URL}}` |
-| `CORS_ALLOWED_ORIGINS` | the frontend's origin, e.g. `https://jobhunter.vercel.app` |
-| `OPENROUTER_API_KEY` | required for LLM scoring; the rule scorer still runs without it |
+| `REDIS_URL` | `${{Redis.REDIS_URL}}`. Without it Celery falls back to `localhost:6379` and every task dispatch 500s |
+| `CLOUDINARY_URL` | `cloudinary://key:secret@cloud` — without it CV uploads land on a disk the worker cannot read |
+| `OPENROUTER_API_KEY` | LLM CV parsing and re-scoring. Both fall back to their non-LLM paths without it |
 | `OPENROUTER_APP_URL` | the frontend's origin, for OpenRouter attribution |
-| job source keys | `ADZUNA_APP_ID`, `ADZUNA_APP_KEY`, `JOOBLE_API_KEY`, … — each empty one skips that board |
 
-`DJANGO_DEBUG` stays unset. `DJANGO_ALLOWED_HOSTS` and `CSRF_TRUSTED_ORIGINS`
+`DJANGO_DEBUG` stays unset — with it on, the technical 500 page publishes every
+setting, credentials included. `DJANGO_ALLOWED_HOSTS` and `CSRF_TRUSTED_ORIGINS`
 pick up `RAILWAY_PUBLIC_DOMAIN` on their own; set them only for a custom domain.
+`CORS_ALLOWED_ORIGINS` is only needed by the Electron client — the web app calls
+the API from its own server, never the browser.
+
+The `ADZUNA_*`, `JOOBLE_*`, `USAJOBS_*` and `RAPIDAPI_*` keys do nothing yet:
+`JOB_SOURCE_KEYS` is read nowhere, and Remotive, the only source that exists,
+needs no key.
 
 Searches need a second service off the same repo with the start command
 overridden to `celery -A jobhunter worker --loglevel=info`, sharing the API's
 variables. Without it a search stays queued forever.
 
-Two things this setup does not solve:
+Set `CLOUDINARY_URL` and uploaded CVs go to Cloudinary instead of the container
+disk, which neither survives a redeploy nor is visible to the worker. See
+`jobhunter/storage.py` for why they are stored as private raw files and read
+back through the signed download endpoint rather than the CDN.
 
-- **Uploaded CVs live on the container's disk.** Redeploys wipe them, and the
-  worker is a separate container that cannot see what the API wrote, so CV
-  parsing fails there. Both services need a shared Railway volume mounted at
-  the same path with `MEDIA_ROOT` pointing to it — or object storage.
-- **Without a Redis service** the cache silently falls back to per-process
-  memory and Celery has no broker. The API serves fine; searches do not run.
+Still true of this setup: **without a Redis service** the cache falls back to
+per-process memory and Celery has no broker. The API serves fine; searches never
+run. `CELERY_TASK_ALWAYS_EAGER=1` trades that for running them inside the
+request instead.
 
 ## Tests
 

@@ -1,7 +1,15 @@
 from datetime import timedelta
 from pathlib import Path
 
-from .env import env_bool, env_db_url, env_int, env_list, env_str, load_dotenv
+from .env import (
+    env_bool,
+    env_cloudinary_url,
+    env_db_url,
+    env_int,
+    env_list,
+    env_str,
+    load_dotenv,
+)
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -120,8 +128,25 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 MEDIA_URL = "media/"
 MEDIA_ROOT = env_str("MEDIA_ROOT", str(BASE_DIR / "media"))
 
+# Uploaded CVs have to outlive the container and be readable from the worker,
+# which is a separate service with its own disk. Cloudinary when it is
+# configured, local disk otherwise, which is what development and the tests want.
+CLOUDINARY_STORAGE = env_cloudinary_url("CLOUDINARY_URL") or {
+    "CLOUD_NAME": env_str("CLOUDINARY_CLOUD_NAME", ""),
+    "API_KEY": env_str("CLOUDINARY_API_KEY", ""),
+    "API_SECRET": env_str("CLOUDINARY_API_SECRET", ""),
+}
+
 STORAGES = {
-    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    "default": {
+        # Raw, not the image backend: CVs are PDF and DOCX, and Cloudinary's
+        # image pipeline would reject or transcode them.
+        "BACKEND": (
+            "jobhunter.storage.PrivateRawCloudinaryStorage"
+            if all(CLOUDINARY_STORAGE.values())
+            else "django.core.files.storage.FileSystemStorage"
+        )
+    },
     "staticfiles": {
         "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
     },

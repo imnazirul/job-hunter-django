@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.coverage
+htmlcov/
+
+.env
+*.sqlite3
+media/
+staticfiles/
+test-media/
+
+# Regenerate with: python manage.py spectacular --file openapi.yaml
+openapi.yaml

@@ -1,0 +1,22 @@
+# .venv alone is ~150MB of Windows binaries that would be copied into a Linux
+# image and never used.
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+
+.git/
+.gitignore
+.pytest_cache/
+.coverage
+htmlcov/
+
+# collectstatic runs during the build; a stale local copy must not win.
+staticfiles/
+media/
+test-media/
+
+.env
+*.sqlite3
+README.md
+docker-compose.yml

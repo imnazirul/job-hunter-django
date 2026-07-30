@@ -24,6 +24,42 @@ Needs Python 3.13 plus a Postgres and Redis you point `.env` at.
     .venv\Scripts\python manage.py migrate
     .venv\Scripts\python manage.py runserver
 
+## Deploying to Railway
+
+The Dockerfile is the production image: it installs runtime deps only, bakes
+`collectstatic` in, runs `migrate` on boot and serves through gunicorn on
+`$PORT`. `railway.json` points the healthcheck at `/healthz/`.
+
+Set the service root directory to `backend-django` if the repo root is deployed.
+
+Variables the API service needs:
+
+| Variable | Value |
+| --- | --- |
+| `DJANGO_SECRET_KEY` | 50 random characters. `python -c "from django.core.management.utils import get_random_secret_key as k; print(k())"` |
+| `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` — the reference, not a pasted URL, so it stays on the internal network |
+| `REDIS_URL` | `${{Redis.REDIS_URL}}` |
+| `CORS_ALLOWED_ORIGINS` | the frontend's origin, e.g. `https://jobhunter.vercel.app` |
+| `OPENROUTER_API_KEY` | required for LLM scoring; the rule scorer still runs without it |
+| `OPENROUTER_APP_URL` | the frontend's origin, for OpenRouter attribution |
+| job source keys | `ADZUNA_APP_ID`, `ADZUNA_APP_KEY`, `JOOBLE_API_KEY`, … — each empty one skips that board |
+
+`DJANGO_DEBUG` stays unset. `DJANGO_ALLOWED_HOSTS` and `CSRF_TRUSTED_ORIGINS`
+pick up `RAILWAY_PUBLIC_DOMAIN` on their own; set them only for a custom domain.
+
+Searches need a second service off the same repo with the start command
+overridden to `celery -A jobhunter worker --loglevel=info`, sharing the API's
+variables. Without it a search stays queued forever.
+
+Two things this setup does not solve:
+
+- **Uploaded CVs live on the container's disk.** Redeploys wipe them, and the
+  worker is a separate container that cannot see what the API wrote, so CV
+  parsing fails there. Both services need a shared Railway volume mounted at
+  the same path with `MEDIA_ROOT` pointing to it — or object storage.
+- **Without a Redis service** the cache silently falls back to per-process
+  memory and Celery has no broker. The API serves fine; searches do not run.
+
 ## Tests
 
 SQLite, Celery in eager mode, HTTP mocked. No infrastructure needed.

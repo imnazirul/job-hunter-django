@@ -1,9 +1,13 @@
 from datetime import timedelta
 from pathlib import Path
 
-from .env import env_bool, env_int, env_list, env_str
+from .env import env_bool, env_db_url, env_int, env_list, env_str, load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+# Must precede every env_* call below. A no-op in production: the platform
+# injects the real variables and no .env is shipped in the image.
+load_dotenv(BASE_DIR / ".env")
 
 DEBUG = env_bool("DJANGO_DEBUG", False)
 
@@ -13,6 +17,19 @@ if not SECRET_KEY:
     raise RuntimeError("DJANGO_SECRET_KEY must be set when DEBUG is off")
 
 ALLOWED_HOSTS = env_list("DJANGO_ALLOWED_HOSTS", ["localhost", "127.0.0.1"])
+
+# Railway assigns the domain after the service exists, so it cannot be in a
+# checked-in env file. Trust the one it injects rather than making every deploy
+# hand-copy it into DJANGO_ALLOWED_HOSTS.
+PUBLIC_DOMAIN = env_str("RAILWAY_PUBLIC_DOMAIN", "")
+if PUBLIC_DOMAIN and PUBLIC_DOMAIN not in ALLOWED_HOSTS:
+    ALLOWED_HOSTS.append(PUBLIC_DOMAIN)
+
+# The admin login POST is cross-origin as far as Django is concerned once a
+# proxy terminates TLS, so the scheme has to be spelled out here.
+CSRF_TRUSTED_ORIGINS = env_list("DJANGO_CSRF_TRUSTED_ORIGINS", [])
+if PUBLIC_DOMAIN:
+    CSRF_TRUSTED_ORIGINS.append(f"https://{PUBLIC_DOMAIN}")
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -32,6 +49,9 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",
     "django.middleware.security.SecurityMiddleware",
+    # Serves the admin and DRF assets straight from gunicorn; there is no nginx
+    # in front of us on a managed host.
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -60,7 +80,8 @@ TEMPLATES = [
 WSGI_APPLICATION = "jobhunter.wsgi.application"
 
 DATABASES = {
-    "default": {
+    "default": env_db_url("DATABASE_URL")
+    or {
         "ENGINE": "django.db.backends.postgresql",
         "NAME": env_str("POSTGRES_DB", "jobhunter"),
         "USER": env_str("POSTGRES_USER", "jobhunter"),
@@ -69,6 +90,8 @@ DATABASES = {
         "PORT": env_str("POSTGRES_PORT", "5432"),
     }
 }
+# Reconnecting per request is wasteful when the database is a network hop away.
+DATABASES["default"]["CONN_MAX_AGE"] = env_int("DB_CONN_MAX_AGE", 60)
 
 AUTH_USER_MODEL = "accounts.User"
 
@@ -87,7 +110,26 @@ USE_TZ = True
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 MEDIA_URL = "media/"
-MEDIA_ROOT = BASE_DIR / "media"
+MEDIA_ROOT = env_str("MEDIA_ROOT", str(BASE_DIR / "media"))
+
+STORAGES = {
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    "staticfiles": {
+        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+    },
+}
+
+# TLS ends at the platform's edge, so Django only learns the original scheme
+# from this header. Without it every redirect and absolute URL comes out http.
+if env_bool("DJANGO_BEHIND_PROXY", not DEBUG):
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+    USE_X_FORWARDED_HOST = True
+
+SECURE_SSL_REDIRECT = env_bool("DJANGO_SECURE_SSL_REDIRECT", False)
+# Off by default: HSTS is remembered by browsers and is painful to walk back.
+SECURE_HSTS_SECONDS = env_int("SECURE_HSTS_SECONDS", 0)
+SESSION_COOKIE_SECURE = not DEBUG
+CSRF_COOKIE_SECURE = not DEBUG
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
@@ -129,6 +171,7 @@ SPECTACULAR_SETTINGS = {
 CORS_ALLOWED_ORIGINS = env_list("CORS_ALLOWED_ORIGINS", ["http://localhost:3000"])
 
 REDIS_URL = env_str("REDIS_URL", "redis://localhost:6379/0")
+HAS_REDIS = bool(env_str("REDIS_URL", ""))
 CELERY_BROKER_URL = REDIS_URL
 CELERY_RESULT_BACKEND = REDIS_URL
 CELERY_TASK_ALWAYS_EAGER = env_bool("CELERY_TASK_ALWAYS_EAGER", False)
@@ -137,12 +180,17 @@ CELERY_TASK_TIME_LIMIT = env_int("CELERY_TASK_TIME_LIMIT", 600)
 CELERY_TASK_SOFT_TIME_LIMIT = env_int("CELERY_TASK_SOFT_TIME_LIMIT", 540)
 CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
 
-CACHES = {
-    "default": {
-        "BACKEND": "django.core.cache.backends.redis.RedisCache",
-        "LOCATION": REDIS_URL,
+# Only the Remotive source uses the cache, to stay under its rate limit. A
+# missing Redis should cost us that, not 500 every request that touches it.
+if HAS_REDIS:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.redis.RedisCache",
+            "LOCATION": REDIS_URL,
+        }
     }
-}
+else:
+    CACHES = {"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}}
 
 OPENROUTER_API_KEY = env_str("OPENROUTER_API_KEY", "")
 OPENROUTER_MODEL = env_str("OPENROUTER_MODEL", "meta-llama/llama-3.1-8b-instruct")

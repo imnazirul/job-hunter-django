@@ -19,6 +19,14 @@ load_dotenv(BASE_DIR / ".env")
 
 DEBUG = env_bool("DJANGO_DEBUG", False)
 
+# DEBUG on a deployed service serves SECRET_KEY, DATABASE_URL and every other
+# setting to anyone who can provoke an exception. One stray DJANGO_DEBUG=1 in a
+# dashboard should not be able to do that, so the platform's own marker wins
+# over it. The escape hatch is named to be hard to set by accident.
+IS_DEPLOYED = bool(env_str("RAILWAY_ENVIRONMENT_NAME", ""))
+if DEBUG and IS_DEPLOYED and not env_bool("DJANGO_ALLOW_DEBUG_IN_DEPLOY", False):
+    DEBUG = False
+
 # A weak default is only tolerable because it is refused outside DEBUG.
 SECRET_KEY = env_str("DJANGO_SECRET_KEY", "insecure-dev-key" if DEBUG else None)
 if not SECRET_KEY:
@@ -233,6 +241,9 @@ OPENROUTER_APP_URL = env_str("OPENROUTER_APP_URL", "http://localhost:3000")
 OPENROUTER_APP_NAME = env_str("OPENROUTER_APP_NAME", "JobHunter")
 
 LLM_CV_TEXT_LIMIT = env_int("LLM_CV_TEXT_LIMIT", 6000)
+# Headroom for the reply, not the prompt. Too low truncates the JSON mid-array
+# and the parse falls back to keywords without the user being told why.
+LLM_CV_MAX_TOKENS = env_int("LLM_CV_MAX_TOKENS", 2000)
 LLM_JOB_DESC_LIMIT = env_int("LLM_JOB_DESC_LIMIT", 1200)
 LLM_SCORE_BATCH_SIZE = min(env_int("LLM_SCORE_BATCH_SIZE", 5), 5)
 LLM_SCORE_TOP_N = env_int("LLM_SCORE_TOP_N", 40)

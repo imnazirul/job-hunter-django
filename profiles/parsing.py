@@ -73,7 +73,10 @@ def parse_profile(cv_text):
                 SYSTEM_PROMPT,
                 USER_TEMPLATE.format(cv_text=truncated),
                 _validate_draft,
-                max_tokens=900,
+                # A long skills list runs past 900 and the reply is cut off
+                # mid-array, which reads as unparseable JSON and silently
+                # demotes the whole parse to keywords.
+                max_tokens=settings.LLM_CV_MAX_TOKENS,
             )
             return _fill_gaps(draft, cv_text), "llm"
         except llm.LLMError as exc:

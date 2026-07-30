@@ -43,8 +43,9 @@ Variables the API service needs:
 | `OPENROUTER_API_KEY` | LLM CV parsing and re-scoring. Both fall back to their non-LLM paths without it |
 | `OPENROUTER_APP_URL` | the frontend's origin, for OpenRouter attribution |
 
-`DJANGO_DEBUG` stays unset — with it on, the technical 500 page publishes every
-setting, credentials included. `DJANGO_ALLOWED_HOSTS` and `CSRF_TRUSTED_ORIGINS`
+`DJANGO_DEBUG` is ignored on a deployed service, because with it on the
+technical 500 page publishes every setting, credentials included. Set
+`DJANGO_ALLOW_DEBUG_IN_DEPLOY=1` alongside it if you really mean it. `DJANGO_ALLOWED_HOSTS` and `CSRF_TRUSTED_ORIGINS`
 pick up `RAILWAY_PUBLIC_DOMAIN` on their own; set them only for a custom domain.
 `CORS_ALLOWED_ORIGINS` is only needed by the Electron client — the web app calls
 the API from its own server, never the browser.

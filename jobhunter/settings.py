@@ -22,8 +22,16 @@ ALLOWED_HOSTS = env_list("DJANGO_ALLOWED_HOSTS", ["localhost", "127.0.0.1"])
 # checked-in env file. Trust the one it injects rather than making every deploy
 # hand-copy it into DJANGO_ALLOWED_HOSTS.
 PUBLIC_DOMAIN = env_str("RAILWAY_PUBLIC_DOMAIN", "")
-if PUBLIC_DOMAIN and PUBLIC_DOMAIN not in ALLOWED_HOSTS:
-    ALLOWED_HOSTS.append(PUBLIC_DOMAIN)
+if PUBLIC_DOMAIN:
+    # The platform's health probe arrives over the private network with its own
+    # Host header, so a host allowlist that only knows the public domain answers
+    # the probe with 400 and the deploy is rolled back as unhealthy.
+    ALLOWED_HOSTS += [
+        PUBLIC_DOMAIN,
+        "healthcheck.railway.app",
+        env_str("RAILWAY_PRIVATE_DOMAIN", ""),
+    ]
+ALLOWED_HOSTS = [host for host in dict.fromkeys(ALLOWED_HOSTS) if host]
 
 # The admin login POST is cross-origin as far as Django is concerned once a
 # proxy terminates TLS, so the scheme has to be spelled out here.
